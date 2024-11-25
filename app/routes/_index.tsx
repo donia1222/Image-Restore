@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { ActionFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
+import { json, redirect } from "@remix-run/node";
 import { Form, useNavigation, useActionData } from "@remix-run/react";
 import Replicate from "replicate";
 import fs from "fs/promises";
@@ -67,17 +67,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const base64Image = `data:image/jpeg;base64,${imageData}`;
 
     console.log("Ejecutando el modelo de Replicate...");
-const output = await replicate.run(
-  "tencentarc/gfpgan:0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c",
-  {
-    input: {
-      img: base64Image,
-      scale: 2,
-      version: "v1.4"
-    }
-  }
-);
-console.log(output);
+    const output = await replicate.run(
+      "tencentarc/gfpgan:0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c",
+      {
+        input: {
+          img: base64Image,
+          scale: 2,
+          version: "v1.4"
+        }
+      }
+    );
+    console.log(output);
     console.log("Salida del modelo de Replicate:", output);
 
     let imageUrl: string | null = null;
@@ -151,6 +151,10 @@ export default function Index() {
   useEffect(() => {
     if (data?.outputImage) {
       setEnhancedImage(data.outputImage);
+      // Limpiar los parámetros de consulta si existen
+      if (window.location.search.includes('index=')) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
     }
   }, [data]);
 
@@ -252,7 +256,7 @@ export default function Index() {
             </div>
           )}
           {enhancedImage && imagePreview && (
-<div className="mt-8 space-y-6">
+            <div className="mt-8 space-y-6">
               <h2 className="text-2xl font-bold text-gray-900 mb-4">Comparación de Imágenes:</h2>
               <ImageComparison originalImage={imagePreview} enhancedImage={enhancedImage} />
               <div className="flex justify-center">
@@ -271,5 +275,3 @@ export default function Index() {
     </div>
   );
 }
-
-
