@@ -1,3 +1,5 @@
+// app/routes/transform-image.tsx
+
 import { useState, useEffect } from "react";
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
@@ -9,7 +11,6 @@ import os from "os";
 import cuid from "cuid";
 import fetch from "node-fetch";
 import sharp from "sharp";
-import ImageComparison from "../components/image-comparison";
 import { ArrowUpToLine, RotateCw, ArrowLeft } from 'lucide-react';
 
 // Función auxiliar para convertir ReadableStream a Buffer
@@ -33,11 +34,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const formData = await request.formData();
   const imageFile = formData.get("image") as File | null;
+  const prompt = formData.get("prompt") as string | null;
   console.log("Archivo de imagen recibido:", imageFile);
+  console.log("Prompt recibido:", prompt);
 
   if (!imageFile) {
     return json(
       { error: "No se proporcionó ninguna imagen." },
+      { status: 400 }
+    );
+  }
+
+  if (!prompt) {
+    return json(
+      { error: "No se proporcionó ningún prompt." },
       { status: 400 }
     );
   }
@@ -68,32 +78,82 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log("Ejecutando el modelo de Replicate...");
     const output = await replicate.run(
-      "tencentarc/gfpgan:0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c",
+      "timothybrooks/instruct-pix2pix:30c1d0b916a6f8efce20493f5d61ee27491ab2a60437c13c588468b9810ec23f",
       {
         input: {
-          img: base64Image,
-          scale: 2,
-          version: "v1.4"
+          image: base64Image,
+          prompt: prompt, // Usar el prompt dinámico
+          scheduler: "K_EULER_ANCESTRAL",
+          num_outputs: 1,
+          guidance_scale: 7.5,
+          num_inference_steps: 100,
+          image_guidance_scale: 1.5
         }
       }
     );
-    console.log(output);
     console.log("Salida del modelo de Replicate:", output);
 
-    let imageUrl: string | null = null;
+    // Añadir registro detallado del output
+    console.log("Tipo de output:", typeof output);
+    console.log("Contenido completo del output:", JSON.stringify(output, null, 2));
+
     let base64ImageOutput: string | null = null;
 
     if (typeof output === "string") {
-      imageUrl = output;
-    } else if (Array.isArray(output) && typeof output[0] === "string") {
-      imageUrl = output[0];
+      // Si el output es una cadena, asume que es una URL
+      const imageUrl = output;
+      console.log("Output es una cadena:", imageUrl);
+
+      const response = await fetch(imageUrl);
+      console.log(`Respuesta de fetch: ${response.status} ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`Error al obtener la imagen: ${response.statusText}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
+      console.log("Imagen mejorada convertida a base64 desde URL.");
+    } else if (Array.isArray(output)) {
+      if (output.length > 0 && output[0] instanceof ReadableStream) {
+        // Si el output es un array de ReadableStream, procesa el primero
+        console.log("Procesando array de ReadableStreams...");
+        const buffer = await streamToBuffer(output[0]);
+        base64ImageOutput = `data:image/png;base64,${buffer.toString("base64")}`;
+        console.log("Imagen mejorada convertida a base64 desde ReadableStream.");
+      } else if (output.length > 0 && typeof output[0] === "string") {
+        // Si el output es un array de cadenas, asume que son URLs
+        const imageUrl = output[0];
+        console.log("Output es un array de cadenas, primer elemento:", imageUrl);
+
+        const response = await fetch(imageUrl);
+        console.log(`Respuesta de fetch: ${response.status} ${response.statusText}`);
+        if (!response.ok) {
+          throw new Error(`Error al obtener la imagen: ${response.statusText}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
+        console.log("Imagen mejorada convertida a base64 desde URL.");
+      } else {
+        console.log("Output es un array pero no contiene cadenas ni ReadableStreams válidos.");
+      }
     } else if (
       typeof output === "object" &&
       output !== null &&
       "image_url" in output
     ) {
-      imageUrl = (output as any).image_url;
+      // Si el output es un objeto con 'image_url'
+      const imageUrl = (output as any).image_url;
+      console.log("Output es un objeto con 'image_url':", imageUrl);
+
+      const response = await fetch(imageUrl);
+      console.log(`Respuesta de fetch: ${response.status} ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`Error al obtener la imagen: ${response.statusText}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
+      console.log("Imagen mejorada convertida a base64 desde URL.");
     } else if (output instanceof ReadableStream) {
+      // Si el output es un único ReadableStream
       console.log("Procesando ReadableStream...");
       const buffer = await streamToBuffer(output);
       base64ImageOutput = `data:image/png;base64,${buffer.toString("base64")}`;
@@ -102,25 +162,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.log("Output no es una cadena, array o objeto con 'image_url'.");
     }
 
-    if (!imageUrl && !base64ImageOutput) {
+    if (!base64ImageOutput) {
+      console.error("Estructura del output desconocida:", JSON.stringify(output, null, 2));
       throw new Error(
-        "No se pudo obtener la URL de la imagen mejorada desde el output de Replicate."
+        "No se pudo obtener la imagen mejorada desde el output de Replicate."
       );
-    }
-
-    if (imageUrl) {
-      console.log(`URL de la imagen mejorada: ${imageUrl}`);
-
-      const response = await fetch(imageUrl);
-      console.log(`Respuesta de fetch: ${response.status} ${response.statusText}`);
-      if (!response.ok) {
-        throw new Error(`Error al obtener la imagen: ${response.statusText}`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      base64ImageOutput = `data:image/png;base64,${Buffer.from(
-        arrayBuffer
-      ).toString("base64")}`;
-      console.log("Imagen mejorada convertida a base64 desde URL.");
     }
 
     return json({ outputImage: base64ImageOutput });
@@ -140,14 +186,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 };
 
-export default function Index() {
+export default function TransformImage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<string>("");
   const [enhancedImage, setEnhancedImage] = useState<string | null>(null);
   const navigation = useNavigation();
   const data = useActionData<{ error?: string; outputImage?: string }>();
 
   const isSubmitting = navigation.state === "submitting";
 
+  // Restablecer la imagen mejorada cuando el formulario comienza a enviarse
+  useEffect(() => {
+    if (isSubmitting) {
+      setEnhancedImage(null);
+    }
+  }, [isSubmitting]);
+
+  // Actualizar la imagen mejorada cuando se recibe la respuesta del servidor
   useEffect(() => {
     if (data?.outputImage) {
       setEnhancedImage(data.outputImage);
@@ -187,16 +242,16 @@ export default function Index() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-400 via-pink-500 to-red-500 py-12 px-4 sm:px-6 lg:px-8 relative">
+    <div className="min-h-screen bg-gradient-to-br from-green-400 via-blue-500 to-purple-600 py-12 px-4 sm:px-6 lg:px-8 relative">
       <Link
         to="/"
         className="absolute top-4 left-4 p-2 bg-white bg-opacity-20 rounded-full text-white hover:bg-opacity-30 transition-all duration-300"
       >
         <ArrowLeft className="w-6 h-6" />
       </Link>
-      <div className="max-w-3xl mx-auto bg-white bg-opacity-10 backdrop-blur-lg rounded-xl shadow-2xl overflow-hidden mt-20">
+      <div className="max-w-3xl mx-auto bg-white bg-opacity-10 backdrop-blur-lg rounded-xl shadow-2xl overflow-hidden  mt-20">
         <div className="p-8">
-          <h1 className="text-4xl font-extrabold text-white mb-8 text-center">Mejora tu imagen</h1>
+          <h1 className="text-4xl font-extrabold text-white mb-8 text-center">Añade tu propio prompt a tu imagen</h1>
           <Form method="post" encType="multipart/form-data" className="space-y-6">
             <div className="flex justify-center items-center w-full">
               <label
@@ -230,6 +285,21 @@ export default function Index() {
                 />
               </div>
             )}
+            <div className="flex flex-col">
+              <label htmlFor="prompt" className="text-white mb-2 font-semibold">
+                Ingresa tu prompt:
+              </label>
+              <textarea
+                id="prompt"
+                name="prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                required
+                placeholder="Ejemplo: Turn him into cyborg"
+                className="p-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white bg-opacity-20 text-white placeholder-gray-300 resize-none"
+                rows={4}
+              ></textarea>
+            </div>
             <div className="flex justify-center">
               <button
                 type="submit"
@@ -243,10 +313,10 @@ export default function Index() {
                 {isSubmitting ? (
                   <>
                     <RotateCw className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" />
-                    Mejorando...
+                    Transformando...
                   </>
                 ) : (
-                  'Mejorar Imagen'
+                  'Transformar Imagen'
                 )}
               </button>
             </div>
@@ -257,10 +327,14 @@ export default function Index() {
               <span className="block sm:inline">{data.error}</span>
             </div>
           )}
-          {enhancedImage && imagePreview && (
-            <div className="mt-8 space-y-6">
-              <h2 className="text-2xl font-bold text-white mb-4">Comparación de Imágenes:</h2>
-              <ImageComparison originalImage={imagePreview} enhancedImage={enhancedImage} />
+          {enhancedImage && (
+            <div className="mt-8 flex flex-col items-center space-y-6">
+              <h2 className="text-2xl font-bold text-white mb-4">Imagen:</h2>
+              <img
+                src={enhancedImage}
+                alt="Imagen Mejorada"
+                className="max-w-full rounded-lg shadow-md"
+              />
               <div className="flex justify-center">
                 <a
                   href={enhancedImage}
