@@ -1,3 +1,4 @@
+// app/routes/index.tsx
 import { useState, useEffect } from "react";
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
@@ -5,7 +6,6 @@ import { Form, useNavigation, useActionData, Link } from "@remix-run/react";
 import Replicate from "replicate";
 import fs from "fs/promises";
 import path from "path";
-import os from "os";
 import cuid from "cuid";
 import fetch from "node-fetch";
 import sharp from "sharp";
@@ -42,29 +42,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 
-  // Guardar el archivo temporalmente
-  const tempDir = os.tmpdir();
-  const filename = `${cuid()}-${imageFile.name}`;
-  const filepath = path.join(tempDir, filename);
-  console.log(`Guardando archivo temporal en: ${filepath}`);
-
   try {
     const fileBuffer = Buffer.from(await imageFile.arrayBuffer());
 
     // Utilizar sharp para reducir el tamaño y comprimir la imagen
     const resizedImageBuffer = await sharp(fileBuffer)
-      .resize(1000)
-      .jpeg({ quality: 80 })
+      .resize(1000) // Reducir tamaño
+      .jpeg({ quality: 100 }) // Reducir calidad para acelerar
       .toBuffer();
     console.log("Imagen redimensionada y comprimida.");
 
-    await fs.writeFile(filepath, resizedImageBuffer);
-    console.log("Archivo temporal guardado.");
-
-    const imageData = await fs.readFile(filepath, { encoding: "base64" });
-    console.log(`Imagen convertida a base64, tamaño: ${imageData.length}`);
-
-    const base64Image = `data:image/jpeg;base64,${imageData}`;
+    // Convertir a base64
+    const base64Image = `data:image/jpeg;base64,${resizedImageBuffer.toString("base64")}`;
+    console.log(`Imagen convertida a base64, tamaño: ${base64Image.length}`);
 
     console.log("Ejecutando el modelo de Replicate...");
     const output = await replicate.run(
@@ -79,33 +69,42 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
     console.log("Salida del modelo de Replicate:", output);
 
+    // Procesar el output para obtener la URL de la imagen mejorada
     let imageUrl: string | null = null;
-    let base64ImageOutput: string | null = null;
+    let buffer: Buffer | null = null;
 
     if (typeof output === "string") {
+      // Output es una cadena (URL)
       imageUrl = output;
+      console.log("Output es una cadena:", imageUrl);
     } else if (Array.isArray(output) && typeof output[0] === "string") {
+      // Output es un array de cadenas (URLs)
       imageUrl = output[0];
+      console.log("Output es un array de cadenas, primer elemento:", imageUrl);
     } else if (
       typeof output === "object" &&
       output !== null &&
       "image_url" in output
     ) {
+      // Output es un objeto con 'image_url'
       imageUrl = (output as any).image_url;
+      console.log("Output es un objeto con 'image_url':", imageUrl);
     } else if (output instanceof ReadableStream) {
+      // Output es un ReadableStream
       console.log("Procesando ReadableStream...");
-      const buffer = await streamToBuffer(output);
-      base64ImageOutput = `data:image/png;base64,${buffer.toString("base64")}`;
-      console.log("Imagen mejorada convertida a base64 desde ReadableStream.");
+      buffer = await streamToBuffer(output);
+      console.log("ReadableStream convertido a Buffer.");
     } else {
       console.log("Output no es una cadena, array o objeto con 'image_url'.");
     }
 
-    if (!imageUrl && !base64ImageOutput) {
+    if (!imageUrl && !buffer) {
       throw new Error(
         "No se pudo obtener la URL de la imagen mejorada desde el output de Replicate."
       );
     }
+
+    let enhancedImageBuffer: Buffer;
 
     if (imageUrl) {
       console.log(`URL de la imagen mejorada: ${imageUrl}`);
@@ -116,26 +115,37 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         throw new Error(`Error al obtener la imagen: ${response.statusText}`);
       }
       const arrayBuffer = await response.arrayBuffer();
-      base64ImageOutput = `data:image/png;base64,${Buffer.from(
-        arrayBuffer
-      ).toString("base64")}`;
-      console.log("Imagen mejorada convertida a base64 desde URL.");
+      enhancedImageBuffer = Buffer.from(arrayBuffer);
+      console.log("Imagen mejorada descargada.");
+    } else {
+      // buffer no es null
+      enhancedImageBuffer = buffer!;
+      console.log("Imagen mejorada obtenida desde ReadableStream.");
     }
 
-    return json({ outputImage: base64ImageOutput });
+    // Guardar la imagen en la carpeta uploads
+    const uniqueId = cuid();
+    const filename = `${uniqueId}.png`;
+    const uploadsDir = path.join(process.cwd(), "uploads");
+
+    // Asegurarse de que la carpeta uploads existe
+    await fs.mkdir(uploadsDir, { recursive: true });
+
+    const filePath = path.join(uploadsDir, filename);
+    await fs.writeFile(filePath, enhancedImageBuffer);
+    console.log(`Imagen guardada en ${filePath}`);
+
+    // Construir la URL pública de la imagen
+    const publicUrl = `/uploads/${filename}`;
+    console.log(`URL pública de la imagen: ${publicUrl}`);
+
+    return json({ outputImage: publicUrl });
   } catch (error: any) {
     console.error("Error en el procesamiento de la imagen:", error);
     return json(
       { error: `Error al procesar la imagen: ${error.message || error}` },
       { status: 500 }
     );
-  } finally {
-    try {
-      await fs.unlink(filepath);
-      console.log(`Archivo temporal eliminado: ${filepath}`);
-    } catch (unlinkError) {
-      console.error(`Error al eliminar el archivo temporal: ${unlinkError}`);
-    }
   }
 };
 
@@ -219,7 +229,9 @@ export default function Index() {
               >
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
                   <ArrowUpToLine className="w-10 h-10 text-white mb-3" />
-                  <p className="mb-2 text-sm text-white"><span className="font-semibold">Haz clic para subir</span> o arrastra y suelta</p>
+                  <p className="mb-2 text-sm text-white">
+                    <span className="font-semibold">Haz clic para subir</span> o arrastra y suelta
+                  </p>
                   <p className="text-xs text-white">PNG, JPG, GIF hasta 10MB</p>
                 </div>
                 <input
