@@ -44,8 +44,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // Utilizar sharp para reducir el tamaño y comprimir la imagen
     const resizedImageBuffer = await sharp(fileBuffer)
-      .resize(800)
-      .jpeg({ quality: 60 }) // Reducir la calidad para acelerar
+      .resize(800) // Reducir tamaño
+      .jpeg({ quality: 60 }) // Reducir calidad para acelerar
       .toBuffer();
     console.log("Imagen redimensionada y comprimida.");
 
@@ -160,7 +160,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 };
-
+  
 export default function Index() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [enhancedImage, setEnhancedImage] = useState<string | null>(null);
