@@ -77,7 +77,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
       }
     );
-    console.log(output);
     console.log("Salida del modelo de Replicate:", output);
 
     let imageUrl: string | null = null;
@@ -148,9 +147,19 @@ export default function Index() {
 
   const isSubmitting = navigation.state === "submitting";
 
+  // Cargar la imagen mejorada desde localStorage al montar el componente
+  useEffect(() => {
+    const savedImage = localStorage.getItem("enhancedImage");
+    if (savedImage) {
+      setEnhancedImage(savedImage);
+    }
+  }, []);
+
+  // Guardar la imagen mejorada en localStorage cuando se recibe
   useEffect(() => {
     if (data?.outputImage) {
       setEnhancedImage(data.outputImage);
+      localStorage.setItem("enhancedImage", data.outputImage);
     }
   }, [data]);
 
@@ -159,9 +168,11 @@ export default function Index() {
     if (file) {
       setImagePreview(URL.createObjectURL(file));
       setEnhancedImage(null); // Restablecer la imagen mejorada
+      localStorage.removeItem("enhancedImage"); // Opcional: eliminar la imagen anterior
     } else {
       setImagePreview(null);
       setEnhancedImage(null);
+      localStorage.removeItem("enhancedImage");
     }
   };
 
@@ -177,6 +188,7 @@ export default function Index() {
     if (file && file.type.startsWith('image/')) {
       setImagePreview(URL.createObjectURL(file));
       setEnhancedImage(null); // Restablecer la imagen mejorada
+      localStorage.removeItem("enhancedImage"); // Opcional: eliminar la imagen anterior
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
       const fileInput = document.getElementById('image-upload') as HTMLInputElement;

@@ -1,11 +1,9 @@
+// app/routes/index.tsx
 import { useState, useEffect } from "react";
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { Form, useNavigation, useActionData, Link } from "@remix-run/react";
 import Replicate from "replicate";
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
 import cuid from "cuid";
 import fetch from "node-fetch";
 import sharp from "sharp";
@@ -41,29 +39,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 
-  // Guardar el archivo temporalmente
-  const tempDir = os.tmpdir();
-  const filename = `${cuid()}-${imageFile.name}`;
-  const filepath = path.join(tempDir, filename);
-  console.log(`Guardando archivo temporal en: ${filepath}`);
-
   try {
     const fileBuffer = Buffer.from(await imageFile.arrayBuffer());
 
     // Utilizar sharp para reducir el tamaño y comprimir la imagen
     const resizedImageBuffer = await sharp(fileBuffer)
       .resize(800)
-      .jpeg({ quality: 80 })
+      .jpeg({ quality: 60 }) // Reducir la calidad para acelerar
       .toBuffer();
     console.log("Imagen redimensionada y comprimida.");
 
-    await fs.writeFile(filepath, resizedImageBuffer);
-    console.log("Archivo temporal guardado.");
-
-    const imageData = await fs.readFile(filepath, { encoding: "base64" });
-    console.log(`Imagen convertida a base64, tamaño: ${imageData.length}`);
-
-    const base64Image = `data:image/jpeg;base64,${imageData}`;
+    // Convertir directamente a base64 sin escribir en el sistema de archivos
+    const base64Image = `data:image/jpeg;base64,${resizedImageBuffer.toString("base64")}`;
+    console.log(`Imagen convertida a base64, tamaño: ${base64Image.length}`);
 
     console.log("Ejecutando el modelo de Replicate...");
     const output = await replicate.run(
@@ -71,17 +59,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       {
         input: {
           image: base64Image,
-          steps: 20,
-          width: 1024,
-          height: 1024,
+          steps: 15, // Reducir pasos para acelerar
+          width: 800, // Reducir tamaño
+          height: 800,
           prompt: "sticker",
           upscale: false,
-          upscale_steps: 10,
+          upscale_steps: 5,
           negative_prompt: "",
-          prompt_strength: 4.5,
-          ip_adapter_noise: 0.5,
-          ip_adapter_weight: 0.2,
-          instant_id_strength: 0.7
+          prompt_strength: 4.0,
+          ip_adapter_noise: 0.4,
+          ip_adapter_weight: 0.1,
+          instant_id_strength: 0.6
         }
       }
     );
@@ -170,13 +158,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       { error: `Error al procesar la imagen: ${error.message || error}` },
       { status: 500 }
     );
-  } finally {
-    try {
-      await fs.unlink(filepath);
-      console.log(`Archivo temporal eliminado: ${filepath}`);
-    } catch (unlinkError) {
-      console.error(`Error al eliminar el archivo temporal: ${unlinkError}`);
-    }
   }
 };
 
@@ -247,7 +228,7 @@ export default function Index() {
       >
         <ArrowLeft className="w-6 h-6" />
       </Link>
-      <div className="max-w-3xl mx-auto bg-white bg-opacity-10 backdrop-blur-lg rounded-xl shadow-2xl overflow-hidden  mt-20">
+      <div className="max-w-3xl mx-auto bg-white bg-opacity-10 backdrop-blur-lg rounded-xl shadow-2xl overflow-hidden mt-20">
         <div className="p-8">
           <h1 className="text-4xl font-extrabold text-white mb-8 text-center">Transforma tu cara en un Sticker</h1>
           <Form method="post" encType="multipart/form-data" className="space-y-6">
@@ -260,7 +241,9 @@ export default function Index() {
               >
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
                   <ArrowUpToLine className="w-10 h-10 text-white mb-3" />
-                  <p className="mb-2 text-sm text-white"><span className="font-semibold">Haz clic para subir</span> o arrastra y suelta</p>
+                  <p className="mb-2 text-sm text-white">
+                    <span className="font-semibold">Haz clic para subir</span> o arrastra y suelta
+                  </p>
                   <p className="text-xs text-white">PNG, JPG, GIF hasta 10MB</p>
                 </div>
                 <input
