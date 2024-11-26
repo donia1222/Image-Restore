@@ -61,20 +61,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     const fileBuffer = Buffer.from(await imageFile.arrayBuffer());
 
-    // Utilizar sharp para reducir el tamaño y comprimir la imagen
+    // Utilizar sharp para reducir el tamaño y convertir a WebP
     const resizedImageBuffer = await sharp(fileBuffer)
-      .resize(800)
-      .jpeg({ quality: 80 })
+      .resize({ width: 800 }) // Redimensiona la imagen a un ancho máximo de 800px
+      .webp({ quality: 80 })   // Convierte la imagen a WebP con calidad 80
       .toBuffer();
-    console.log("Imagen redimensionada y comprimida.");
+    console.log("Imagen redimensionada y convertida a WebP.");
 
     await fs.writeFile(filepath, resizedImageBuffer);
     console.log("Archivo temporal guardado.");
 
-    const imageData = await fs.readFile(filepath, { encoding: "base64" });
+    // Convertir la imagen a base64
+    const imageData = resizedImageBuffer.toString("base64");
     console.log(`Imagen convertida a base64, tamaño: ${imageData.length}`);
 
-    const base64Image = `data:image/jpeg;base64,${imageData}`;
+    const base64Image = `data:image/webp;base64,${imageData}`;
 
     console.log("Ejecutando el modelo de Replicate...");
     const output = await replicate.run(
@@ -97,7 +98,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log("Tipo de output:", typeof output);
     console.log("Contenido completo del output:", JSON.stringify(output, null, 2));
 
-    let base64ImageOutput: string | null = null;
+    let webpImageOutput: string | null = null;
 
     if (typeof output === "string") {
       // Si el output es una cadena, asume que es una URL
@@ -110,15 +111,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         throw new Error(`Error al obtener la imagen: ${response.statusText}`);
       }
       const arrayBuffer = await response.arrayBuffer();
-      base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
-      console.log("Imagen mejorada convertida a base64 desde URL.");
+      // Convertir a WebP si no lo está
+      const convertedBuffer = await sharp(Buffer.from(arrayBuffer))
+        .webp({ quality: 80 })
+        .toBuffer();
+      webpImageOutput = `data:image/webp;base64,${convertedBuffer.toString("base64")}`;
+      console.log("Imagen mejorada convertida a WebP desde URL.");
     } else if (Array.isArray(output)) {
       if (output.length > 0 && output[0] instanceof ReadableStream) {
         // Si el output es un array de ReadableStream, procesa el primero
         console.log("Procesando array de ReadableStreams...");
         const buffer = await streamToBuffer(output[0]);
-        base64ImageOutput = `data:image/png;base64,${buffer.toString("base64")}`;
-        console.log("Imagen mejorada convertida a base64 desde ReadableStream.");
+        // Convertir a WebP si no lo está
+        const convertedBuffer = await sharp(buffer)
+          .webp({ quality: 80 })
+          .toBuffer();
+        webpImageOutput = `data:image/webp;base64,${convertedBuffer.toString("base64")}`;
+        console.log("Imagen mejorada convertida a WebP desde ReadableStream.");
       } else if (output.length > 0 && typeof output[0] === "string") {
         // Si el output es un array de cadenas, asume que son URLs
         const imageUrl = output[0];
@@ -130,8 +139,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           throw new Error(`Error al obtener la imagen: ${response.statusText}`);
         }
         const arrayBuffer = await response.arrayBuffer();
-        base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
-        console.log("Imagen mejorada convertida a base64 desde URL.");
+        // Convertir a WebP si no lo está
+        const convertedBuffer = await sharp(Buffer.from(arrayBuffer))
+          .webp({ quality: 80 })
+          .toBuffer();
+        webpImageOutput = `data:image/webp;base64,${convertedBuffer.toString("base64")}`;
+        console.log("Imagen mejorada convertida a WebP desde URL.");
       } else {
         console.log("Output es un array pero no contiene cadenas ni ReadableStreams válidos.");
       }
@@ -150,26 +163,34 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         throw new Error(`Error al obtener la imagen: ${response.statusText}`);
       }
       const arrayBuffer = await response.arrayBuffer();
-      base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
-      console.log("Imagen mejorada convertida a base64 desde URL.");
+      // Convertir a WebP si no lo está
+      const convertedBuffer = await sharp(Buffer.from(arrayBuffer))
+        .webp({ quality: 80 })
+        .toBuffer();
+      webpImageOutput = `data:image/webp;base64,${convertedBuffer.toString("base64")}`;
+      console.log("Imagen mejorada convertida a WebP desde URL.");
     } else if (output instanceof ReadableStream) {
       // Si el output es un único ReadableStream
       console.log("Procesando ReadableStream...");
       const buffer = await streamToBuffer(output);
-      base64ImageOutput = `data:image/png;base64,${buffer.toString("base64")}`;
-      console.log("Imagen mejorada convertida a base64 desde ReadableStream.");
+      // Convertir a WebP si no lo está
+      const convertedBuffer = await sharp(buffer)
+        .webp({ quality: 80 })
+        .toBuffer();
+      webpImageOutput = `data:image/webp;base64,${convertedBuffer.toString("base64")}`;
+      console.log("Imagen mejorada convertida a WebP desde ReadableStream.");
     } else {
       console.log("Output no es una cadena, array o objeto con 'image_url'.");
     }
 
-    if (!base64ImageOutput) {
+    if (!webpImageOutput) {
       console.error("Estructura del output desconocida:", JSON.stringify(output, null, 2));
       throw new Error(
         "No se pudo obtener la imagen mejorada desde el output de Replicate."
       );
     }
 
-    return json({ outputImage: base64ImageOutput });
+    return json({ outputImage: webpImageOutput });
   } catch (error: any) {
     console.error("Error en el procesamiento de la imagen:", error);
     return json(
@@ -249,7 +270,7 @@ export default function TransformImage() {
       >
         <ArrowLeft className="w-6 h-6" />
       </Link>
-      <div className="max-w-3xl mx-auto bg-white bg-opacity-10 backdrop-blur-lg rounded-xl shadow-2xl overflow-hidden  mt-20">
+      <div className="max-w-3xl mx-auto bg-white bg-opacity-10 backdrop-blur-lg rounded-xl shadow-2xl overflow-hidden mt-20">
         <div className="p-8">
           <h1 className="text-4xl font-extrabold text-white mb-8 text-center">Añade tu propio prompt a tu imagen</h1>
           <Form method="post" encType="multipart/form-data" className="space-y-6">
@@ -338,7 +359,7 @@ export default function TransformImage() {
               <div className="flex justify-center">
                 <a
                   href={enhancedImage}
-                  download={`imagen-mejorada-${Date.now()}.png`}
+                  download={`imagen-mejorada-${Date.now()}.webp`}
                   className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-300 ease-in-out"
                 >
                   Descargar Imagen Mejorada
