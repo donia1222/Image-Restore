@@ -53,7 +53,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // Utilizar sharp para reducir el tamaño y comprimir la imagen
     const resizedImageBuffer = await sharp(fileBuffer)
-      .resize(800)
+      .resize(1000)
       .jpeg({ quality: 80 })
       .toBuffer();
     console.log("Imagen redimensionada y comprimida.");

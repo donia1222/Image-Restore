@@ -19,7 +19,7 @@ export default function Home() {
             </div>
           </Link>
           <Link 
-            to="/" 
+            to="/face-to-sticker" 
             className="block bg-white bg-opacity-20 hover:bg-opacity-30 transition-colors duration-300 rounded-lg shadow-lg"
           >
             <div className="w-full h-24 flex items-center justify-center text-lg font-semibold text-white">
@@ -30,7 +30,7 @@ export default function Home() {
             </div>
           </Link>
           <Link 
-            to="/" 
+            to="/generate" 
             className="block bg-white bg-opacity-20 hover:bg-opacity-30 transition-colors duration-300 rounded-lg shadow-lg"
           >
             <div className="w-full h-24 flex items-center justify-center text-lg font-semibold text-white">
@@ -41,7 +41,7 @@ export default function Home() {
             </div>
           </Link>
           <Link 
-            to="/" 
+            to="/transform-image" 
             className="block bg-white bg-opacity-20 hover:bg-opacity-30 transition-colors duration-300 rounded-lg shadow-lg"
           >
             <div className="w-full h-24 flex items-center justify-center text-lg font-semibold text-white">
@@ -56,5 +56,4 @@ export default function Home() {
     </div>
   );
 }
-
 

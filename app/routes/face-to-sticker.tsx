@@ -8,6 +8,8 @@ import cuid from "cuid";
 import fetch from "node-fetch";
 import sharp from "sharp";
 import { ArrowUpToLine, RotateCw, ArrowLeft } from 'lucide-react';
+import fs from "fs/promises";
+import path from "path";
 
 // Función auxiliar para convertir ReadableStream a Buffer
 async function streamToBuffer(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
@@ -79,43 +81,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log("Tipo de output:", typeof output);
     console.log("Contenido completo del output:", JSON.stringify(output, null, 2));
 
-    let base64ImageOutput: string | null = null;
+    let imageUrl: string | null = null;
 
     if (typeof output === "string") {
       // Si el output es una cadena, asume que es una URL
-      const imageUrl = output;
+      imageUrl = output;
       console.log("Output es una cadena:", imageUrl);
-
-      const response = await fetch(imageUrl);
-      console.log(`Respuesta de fetch: ${response.status} ${response.statusText}`);
-      if (!response.ok) {
-        throw new Error(`Error al obtener la imagen: ${response.statusText}`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
-      console.log("Imagen mejorada convertida a base64 desde URL.");
     } else if (Array.isArray(output)) {
-      if (output.length > 0 && output[0] instanceof ReadableStream) {
+      if (output.length > 0 && typeof output[0] === "string") {
+        // Si el output es un array de cadenas, asume que son URLs
+        imageUrl = output[0];
+        console.log("Output es un array de cadenas, primer elemento:", imageUrl);
+      } else if (output.length > 0 && output[0] instanceof ReadableStream) {
         // Si el output es un array de ReadableStream, procesa el primero
         console.log("Procesando array de ReadableStreams...");
         const buffer = await streamToBuffer(output[0]);
-        base64ImageOutput = `data:image/png;base64,${buffer.toString("base64")}`;
+        imageUrl = `data:image/png;base64,${buffer.toString("base64")}`;
         console.log("Imagen mejorada convertida a base64 desde ReadableStream.");
-      } else if (output.length > 0 && typeof output[0] === "string") {
-        // Si el output es un array de cadenas, asume que son URLs
-        const imageUrl = output[0];
-        console.log("Output es un array de cadenas, primer elemento:", imageUrl);
-
-        const response = await fetch(imageUrl);
-        console.log(`Respuesta de fetch: ${response.status} ${response.statusText}`);
-        if (!response.ok) {
-          throw new Error(`Error al obtener la imagen: ${response.statusText}`);
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
-        console.log("Imagen mejorada convertida a base64 desde URL.");
-      } else {
-        console.log("Output es un array pero no contiene cadenas ni ReadableStreams válidos.");
       }
     } else if (
       typeof output === "object" &&
@@ -123,35 +105,58 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       "image_url" in output
     ) {
       // Si el output es un objeto con 'image_url'
-      const imageUrl = (output as any).image_url;
+      imageUrl = (output as any).image_url;
       console.log("Output es un objeto con 'image_url':", imageUrl);
-
-      const response = await fetch(imageUrl);
-      console.log(`Respuesta de fetch: ${response.status} ${response.statusText}`);
-      if (!response.ok) {
-        throw new Error(`Error al obtener la imagen: ${response.statusText}`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      base64ImageOutput = `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
-      console.log("Imagen mejorada convertida a base64 desde URL.");
     } else if (output instanceof ReadableStream) {
       // Si el output es un único ReadableStream
       console.log("Procesando ReadableStream...");
       const buffer = await streamToBuffer(output);
-      base64ImageOutput = `data:image/png;base64,${buffer.toString("base64")}`;
+      imageUrl = `data:image/png;base64,${buffer.toString("base64")}`;
       console.log("Imagen mejorada convertida a base64 desde ReadableStream.");
     } else {
       console.log("Output no es una cadena, array o objeto con 'image_url'.");
     }
 
-    if (!base64ImageOutput) {
+    if (!imageUrl) {
       console.error("Estructura del output desconocida:", JSON.stringify(output, null, 2));
       throw new Error(
         "No se pudo obtener la imagen mejorada desde el output de Replicate."
       );
     }
 
-    return json({ outputImage: base64ImageOutput });
+    // Generar un identificador único para el archivo
+    const uniqueId = cuid();
+    const filename = `${uniqueId}.png`;
+    const uploadsDir = path.join(process.cwd(), "uploads");
+
+    // Asegurarse de que la carpeta uploads exista
+    await fs.mkdir(uploadsDir, { recursive: true });
+
+    let imageBuffer: Buffer;
+
+    if (imageUrl.startsWith('data:image')) {
+      // Si la URL es un data URL, decodificar el base64
+      const base64Data = imageUrl.split(",")[1];
+      imageBuffer = Buffer.from(base64Data, "base64");
+    } else {
+      // Descargar la imagen desde la URL proporcionada por Replicate
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Error al descargar la imagen: ${response.statusText}`);
+      }
+      imageBuffer = Buffer.from(await response.arrayBuffer());
+    }
+
+    // Guardar la imagen en la carpeta uploads
+    const filePath = path.join(uploadsDir, filename);
+    await fs.writeFile(filePath, imageBuffer);
+    console.log(`Imagen guardada en ${filePath}`);
+
+    // Construir la URL pública de la imagen
+    const publicUrl = `/uploads/${filename}`;
+    console.log(`URL pública de la imagen: ${publicUrl}`);
+
+    return json({ outputImage: publicUrl });
   } catch (error: any) {
     console.error("Error en el procesamiento de la imagen:", error);
     return json(
@@ -160,7 +165,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
   }
 };
-  
+
 export default function Index() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [enhancedImage, setEnhancedImage] = useState<string | null>(null);
